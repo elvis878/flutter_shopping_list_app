@@ -1,6 +1,12 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
+import 'package:flutter_shopping_list_app/data/categories.dart';
 import 'package:flutter_shopping_list_app/models/grocery_item.dart';
 import 'package:flutter_shopping_list_app/widgets/new_item.dart';
+import 'package:http/http.dart' as http;
+
+import '../constants.dart';
 
 class GroceryList extends StatefulWidget {
   const GroceryList({super.key});
@@ -11,6 +17,51 @@ class GroceryList extends StatefulWidget {
 
 class _GroceryListState extends State<GroceryList> {
   final List<GroceryItem> _groceryItems = [];
+  bool _isLoading = true;
+  String? _errorMessage;
+
+  void _loadItems() async {
+    final apiUrl = Uri.https(firebaseUrl, groceryListJson);
+    final response = await http.get(apiUrl);
+
+    if (response.statusCode >= 400) {
+      setState(() {
+        _errorMessage =
+            'Could not load items at this time. Please try again later.';
+      });
+      return;
+    }
+
+    if (response.body == 'null') {
+      setState(() {
+        _isLoading = false;
+      });
+      return;
+    }
+
+    final Map<String, dynamic> listData = json.decode(response.body);
+    for (final item in listData.entries) {
+      if (_groceryItems.any((element) => element.id == item.key)) {
+        continue;
+      }
+
+      final groceryItem = GroceryItem(
+        id: item.key,
+        name: item.value['name'],
+        quantity: item.value['quantity'],
+        category: categories.entries
+            .firstWhere(
+              (element) => element.value.title == item.value['category'],
+            )
+            .value,
+      );
+
+      setState(() {
+        _groceryItems.add(groceryItem);
+      });
+    }
+    _isLoading = false;
+  }
 
   void _addItem() async {
     final newItem = await Navigator.of(context).push<GroceryItem>(
@@ -26,6 +77,20 @@ class _GroceryListState extends State<GroceryList> {
     setState(() {
       _groceryItems.add(newItem);
     });
+  }
+
+  void _removeItem(GroceryItem item) {
+    final apiUrl = Uri.https(firebaseUrl, '$groceryListKey/${item.id}.json');
+    http.delete(apiUrl);
+    setState(() {
+      _groceryItems.remove(item);
+    });
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _loadItems();
   }
 
   @override
@@ -54,15 +119,34 @@ class _GroceryListState extends State<GroceryList> {
       ),
     );
 
+    if (_isLoading) {
+      content = const Center(
+        child: CircularProgressIndicator(),
+      );
+    }
+
+    if (_errorMessage != null) {
+      content = Center(
+        child: Padding(
+          padding: const EdgeInsets.all(32.0),
+          child: Text(
+            _errorMessage!,
+            style: const TextStyle(
+              fontSize: 16,
+            ),
+            textAlign: TextAlign.center,
+          ),
+        ),
+      );
+    }
+
     if (_groceryItems.isNotEmpty) {
       content = ListView.builder(
         itemCount: _groceryItems.length,
         itemBuilder: (ctx, index) => Dismissible(
           key: ValueKey(_groceryItems[index].id),
           onDismissed: (direction) {
-            setState(() {
-              _groceryItems.remove(_groceryItems[index]);
-            });
+            _removeItem(_groceryItems[index]);
           },
           child: ListTile(
             title: Text(_groceryItems[index].name),

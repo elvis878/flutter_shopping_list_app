@@ -1,8 +1,11 @@
-import 'package:flutter/material.dart';
-import 'package:flutter_shopping_list_app/data/categories.dart';
-import 'package:flutter_shopping_list_app/models/grocery_item.dart';
+import 'dart:convert';
 
-import '../models/category.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_shopping_list_app/constants.dart';
+import 'package:flutter_shopping_list_app/data/categories.dart';
+import 'package:flutter_shopping_list_app/models/category.dart';
+import 'package:flutter_shopping_list_app/models/grocery_item.dart';
+import 'package:http/http.dart' as http;
 
 class NewItem extends StatefulWidget {
   const NewItem({super.key});
@@ -13,19 +16,42 @@ class NewItem extends StatefulWidget {
 
 class _NewItemState extends State<NewItem> {
   final _formKey = GlobalKey<FormState>();
-  var _itemName = '';
-  var _itemQuantity = 1;
-  var _itemCategory = categories.entries.first.value;
+  bool _isLoading = false;
+  String _itemName = '';
+  int _itemQuantity = 1;
+  Category _itemCategory = categories.entries.first.value;
 
-  void _saveItem() {
+  void _saveItem() async {
     final isValid = _formKey.currentState!.validate();
     if (!isValid) {
       return;
     }
+    setState(() {
+      _isLoading = true;
+    });
     _formKey.currentState!.save();
+    final apiUrl = Uri.https(firebaseUrl, groceryListJson);
+    final response = await http.post(
+      apiUrl,
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: json.encode(
+        {
+          'name': _itemName,
+          'quantity': _itemQuantity,
+          'category': _itemCategory.title,
+        },
+      ),
+    );
+    final responseData = json.decode(response.body);
+
+    if (!context.mounted) {
+      return;
+    }
     Navigator.of(context).pop(
       GroceryItem(
-        id: DateTime.now().toString(),
+        id: responseData['name'],
         name: _itemName,
         quantity: _itemQuantity,
         category: _itemCategory,
@@ -126,15 +152,23 @@ class _NewItemState extends State<NewItem> {
                 mainAxisAlignment: MainAxisAlignment.end,
                 children: <Widget>[
                   TextButton(
-                    onPressed: () {
-                      _formKey.currentState!.reset();
-                    },
+                    onPressed: _isLoading
+                        ? null
+                        : () {
+                            _formKey.currentState!.reset();
+                          },
                     child: const Text('Reset'),
                   ),
                   ElevatedButton.icon(
-                    onPressed: _saveItem,
-                    icon: const Icon(Icons.check_rounded),
-                    label: const Text('Add item'),
+                    onPressed: _isLoading ? null : _saveItem,
+                    icon: _isLoading
+                        ? const SizedBox(
+                            height: 20,
+                            width: 20,
+                            child: CircularProgressIndicator(),
+                          )
+                        : const Icon(Icons.check_rounded),
+                    label: Text(_isLoading ? 'Saving item...' : 'Add item'),
                     style: ButtonStyle(
                       shape: MaterialStateProperty.all<RoundedRectangleBorder>(
                         RoundedRectangleBorder(
